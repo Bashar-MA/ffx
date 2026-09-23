@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline Diagram Builder</title>
+<style>
+  :root{
+    --ink:#1c2330; --line:#d8dee8; --panel:#fbfcfe; --accent:#2f5fd6;
+    --muted:#69728a; --bg:#eef1f6;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:13px;}
+  #nav{flex:0 0 auto;display:flex;gap:16px;align-items:center;padding:8px 16px;background:#1c2330;color:#fff;font-size:12px;}
+  #nav a{color:#cdd6ea;text-decoration:none;}
+  #nav a.active{color:#fff;font-weight:700;}
+  #nav a:hover{color:#fff;}
+  #main{flex:1;display:flex;overflow:hidden;}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:18px 0 8px;}
+  h2:first-child{margin-top:0;}
+  #panel{width:290px;flex:0 0 290px;background:var(--panel);border-right:1px solid var(--line);
+         padding:16px;overflow-y:auto;}
+  #canvasWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;}
+  label{display:block;font-size:11px;color:var(--muted);margin:8px 0 3px;}
+  input,select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;
+        font-size:12px;background:#fff;color:var(--ink);}
+  input[type=color]{padding:2px;height:30px;cursor:pointer;}
+  .row{display:flex;gap:8px;}
+  .row>div{flex:1;}
+  button{width:100%;padding:8px;border:none;border-radius:6px;background:var(--accent);
+        color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;}
+  button:hover{opacity:.9;}
+  button.secondary{background:#3a4256;}
+  .item{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--line);
+        border-radius:6px;margin-top:6px;font-size:11px;background:#fff;}
+  .item .swatch{width:12px;height:12px;border-radius:3px;flex:0 0 12px;}
+  .item .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .item .del{cursor:pointer;color:#c0392b;font-weight:700;flex:0 0 auto;padding:0 3px;}
+  .box{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:10px;background:#fff;}
+  .check{display:flex;align-items:center;gap:6px;margin-top:2px;}
+  .check input{width:auto;}
+  .hint{font-size:10px;color:var(--muted);margin-top:4px;}
+  #svgHost{background:#fff;border:1px solid var(--line);border-radius:10px;padding:20px;}
+  svg{display:block;}
+</style>
+</head>
+<body>
+<div id="nav"><span style="font-weight:700">Figure Tools</span><a href="index.html">Home</a><a href="timeline.html" class="active">Timeline Diagram</a><a href="domains.html">Protein Domain Map</a><a href="plots.html">Analysis Plots</a><a href="multipanel.html">Multi-Panel Layout</a></div>
+<div id="main">
+<div id="panel">
+  <h2>Diagram Setup</h2>
+  <label>Scale Unit</label>
+  <input id="scaleUnit" value="Weeks (W)">
+  <label>Scale Range (Start &amp; End)</label>
+  <div class="row"><div><input id="rangeStart" type="number" value="0"></div><div><input id="rangeEnd" type="number" value="100"></div></div>
+  <label>Number of Ticks</label>
+  <input id="tickCount" type="number" value="6" min="2" max="20">
+  <label>Font Size (<span id="fontSizeVal">12</span>px)</label>
+  <input id="fontSize" type="range" min="8" max="20" value="12">
+
+  <div class="box">
+    <div class="check"><input id="breakEnabled" type="checkbox" checked><label style="margin:0" for="breakEnabled">Timeline Break (Cut-off)</label></div>
+    <div class="row"><div><input id="breakStart" type="number" value="20"></div><div><input id="breakEnd" type="number" value="80"></div></div>
+    <div class="hint">Compresses a long interval into a small dashed break zone.</div>
+  </div>
+
+  <h2>Highlight Regions</h2>
+  <div class="row"><div><input id="regStart" placeholder="Start"></div><div><input id="regEnd" placeholder="End"></div></div>
+  <input id="regLabel" placeholder="Label (optional)" style="margin-top:6px">
+  <input id="regColor" type="color" value="#2f5fd6" style="margin-top:6px">
+  <button onclick="addRegion()">Add Segment</button>
+  <div id="regionList"></div>
+
+  <h2>Vertical Indicators</h2>
+  <div class="row"><div><input id="mkPos" placeholder="Position"></div><div><input id="mkLabel" placeholder="Label"></div></div>
+  <input id="mkColor" type="color" value="#c0392b" style="margin-top:6px">
+  <button onclick="addMarker()">Add Marker</button>
+  <div id="markerList"></div>
+
+  <button class="secondary" onclick="exportSVG()">Export as SVG</button>
+</div>
+
+<div id="canvasWrap"><div id="svgHost"></div></div>
+</div>
+
+<script>
+let regions = [
+  {start:2, end:16, label:'Induction Phase', color:'#2f5fd6'},
+  {start:85, end:95, label:'Extension', color:'#8e44ad'}
+];
+let markers = [
+  {pos:0, label:'Screening / Baseline', color:'#c0392b'},
+  {pos:2, label:'1st Infusion', color:'#c0392b'},
+  {pos:10, label:'Interim Eval', color:'#27ae60'}
+];
+
+function $(id){return document.getElementById(id);}
+$('fontSize').oninput = ()=>{$('fontSizeVal').textContent=$('fontSize').value; render();};
+['scaleUnit','rangeStart','rangeEnd','tickCount','breakEnabled','breakStart','breakEnd'].forEach(id=>{
+  $(id).addEventListener('input', render);
+  $(id).addEventListener('change', render);
+});
+
+function renderList(container, arr, formatFn){
+  container.innerHTML='';
+  arr.forEach((item,i)=>{
+    const div=document.createElement('div'); div.className='item';
+    div.innerHTML=`<div class="swatch" style="background:${item.color}"></div>
+      <div class="txt">${formatFn(item)}</div><div class="del" onclick="removeItem('${container.id}',${i})">✕</div>`;
+    container.appendChild(div);
+  });
+}
+function removeItem(listId, idx){
+  if(listId==='regionList'){ regions.splice(idx,1);} else { markers.splice(idx,1); }
+  render();
+}
+function addRegion(){
+  const s=parseFloat($('regStart').value), e=parseFloat($('regEnd').value);
+  if(isNaN(s)||isNaN(e)) return;
+  regions.push({start:s,end:e,label:$('regLabel').value||'',color:$('regColor').value});
+  $('regStart').value=''; $('regEnd').value=''; $('regLabel').value='';
+  render();
+}
+function addMarker(){
+  const p=parseFloat($('mkPos').value);
+  if(isNaN(p)) return;
+  markers.push({pos:p,label:$('mkLabel').value||'',color:$('mkColor').value});
+  $('mkPos').value=''; $('mkLabel').value='';
+  render();
+}
+
+function niceStep(range, count){
+  const raw = range/count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw/mag;
+  let step;
+  if(norm<1.5) step=1; else if(norm<3) step=2; else if(norm<7) step=5; else step=10;
+  return step*mag;
+}
+
+function buildScale(){
+  const start=parseFloat($('rangeStart').value)||0;
+  const end=parseFloat($('rangeEnd').value)||100;
+  const breakOn=$('breakEnabled').checked;
+  const bStart=parseFloat($('breakStart').value);
+  const bEnd=parseFloat($('breakEnd').value);
+  const W=900, marginL=50, marginR=50;
+  const drawW=W-marginL-marginR;
+  const gap=breakOn && bEnd>bStart ? 46:0;
+  let span = breakOn && bEnd>bStart ? (bStart-start)+(end-bEnd) : (end-start);
+  const scale = (drawW-gap)/span;
+  function x(v){
+    if(!breakOn || bEnd<=bStart || v<=bStart){
+      return marginL + (v-start)*scale;
+    } else if(v>=bEnd){
+      return marginL + (bStart-start)*scale + gap + (v-bEnd)*scale;
+    } else {
+      const f=(v-bStart)/(bEnd-bStart);
+      return marginL + (bStart-start)*scale + f*gap;
+    }
+  }
+  return {x,start,end,breakOn,bStart,bEnd,W,marginL,marginR,drawW,scale};
+}
+
+function render(){
+  renderList($('regionList'), regions, r=>`${r.start}-${r.end}${r.label?' ('+r.label+')':''}`);
+  renderList($('markerList'), markers, m=>`Pos: ${m.pos}${m.label?' ('+m.label+')':''}`);
+
+  const fs = parseInt($('fontSize').value);
+  const unit = $('scaleUnit').value.trim();
+  const {x,start,end,breakOn,bStart,bEnd,W} = buildScale();
+  const axisY = 210, barY = 150, barH = 26;
+  const H = 260;
+
+  let ticks=[];
+  const count = parseInt($('tickCount').value)||6;
+  if(breakOn && bEnd>bStart){
+    const step1 = niceStep(bStart-start, Math.max(2,Math.round(count* (bStart-start)/(end-start))));
+    for(let v=start; v<=bStart+1e-9; v+=step1) ticks.push(round1(v));
+    if(ticks[ticks.length-1]!==round1(bStart)) ticks.push(round1(bStart));
+    ticks.push(round1(bEnd));
+    const step2 = niceStep(end-bEnd, Math.max(2,Math.round(count*(end-bEnd)/(end-start))));
+    for(let v=bEnd+step2; v<end-1e-9; v+=step2) ticks.push(round1(v));
+    ticks.push(round1(end));
+  } else {
+    const step = niceStep(end-start, count);
+    for(let v=start; v<=end+1e-9; v+=step) ticks.push(round1(v));
+  }
+  function round1(v){ return Math.round(v*10)/10; }
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Helvetica,Arial,sans-serif">`;
+  svg += `<rect width="${W}" height="${H}" fill="#ffffff"/>`;
+
+  // base axis line(s)
+  if(breakOn && bEnd>bStart){
+    svg += `<line x1="${x(start)}" y1="${axisY}" x2="${x(bStart)}" y2="${axisY}" stroke="#333" stroke-width="1.5"/>`;
+    svg += `<line x1="${x(bEnd)}" y1="${axisY}" x2="${x(end)}" y2="${axisY}" stroke="#333" stroke-width="1.5"/>`;
+    // break zigzag
+    const gx1=x(bStart), gx2=x(bEnd), gy=axisY;
+    svg += `<path d="M${gx1},${gy-6} L${gx1+8},${gy+6} L${gx1+16},${gy-6} L${gx2-8},${gy+6} L${gx2},${gy-6}" stroke="#333" stroke-width="1.2" fill="none"/>`;
+  } else {
+    svg += `<line x1="${x(start)}" y1="${axisY}" x2="${x(end)}" y2="${axisY}" stroke="#333" stroke-width="1.5"/>`;
+  }
+
+  // ticks
+  ticks.forEach(t=>{
+    const tx=x(t);
+    svg += `<line x1="${tx}" y1="${axisY}" x2="${tx}" y2="${axisY+5}" stroke="#333" stroke-width="1"/>`;
+    svg += `<text x="${tx}" y="${axisY+18}" font-size="${fs-1}" fill="#555" text-anchor="middle">${t}${unit.match(/\(([^)]+)\)/)?' '+unit.match(/\(([^)]+)\)/)[1]:''}</text>`;
+  });
+
+  // base track (light gray bar spanning whole range)
+  svg += `<rect x="${x(start)}" y="${barY}" width="${x(end)-x(start)}" height="${barH}" rx="5" fill="#e4e8ef"/>`;
+
+  // highlight regions
+  regions.forEach(r=>{
+    const rx = x(Math.max(r.start,start));
+    const rw = x(Math.min(r.end,end)) - rx;
+    if(rw<=0) return;
+    svg += `<rect x="${rx}" y="${barY}" width="${rw}" height="${barH}" rx="5" fill="${r.color}"/>`;
+    if(r.label){
+      svg += `<text x="${rx+rw/2}" y="${barY+barH/2+4}" font-size="${fs}" fill="#fff" text-anchor="middle" font-weight="600">${escXml(r.label)}</text>`;
+    }
+  });
+
+  // if break, mask the compressed break gap area on the bar with dashed pattern
+  if(breakOn && bEnd>bStart){
+    const gx1=x(bStart), gx2=x(bEnd);
+    svg += `<rect x="${gx1}" y="${barY}" width="${gx2-gx1}" height="${barH}" fill="#ffffff" opacity="0"/>`;
+  }
+
+  // vertical markers
+  markers.forEach((m,i)=>{
+    const mx = x(m.pos);
+    svg += `<line x1="${mx}" y1="${barY-30 - (i%2)*14}" x2="${mx}" y2="${axisY}" stroke="${m.color}" stroke-width="1" stroke-dasharray="3,2"/>`;
+    svg += `<circle cx="${mx}" cy="${barY-30-(i%2)*14}" r="2.5" fill="${m.color}"/>`;
+    svg += `<text x="${mx}" y="${barY-34-(i%2)*14}" font-size="${fs-1}" fill="${m.color}" text-anchor="middle" font-weight="600">${escXml(m.label||'')}</text>`;
+  });
+
+  svg += `</svg>`;
+  $('svgHost').innerHTML = svg;
+}
+function escXml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function exportSVG(){
+  const svgEl = $('svgHost').querySelector('svg');
+  const blob = new Blob([svgEl.outerHTML], {type:'image/svg+xml'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'timeline-diagram.svg';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+render();
+</script>
+</body>
+</html>

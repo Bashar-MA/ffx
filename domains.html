@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protein Domain Map</title>
+<style>
+  :root{--ink:#1c2330;--line:#d8dee8;--panel:#fbfcfe;--accent:#2f5fd6;--muted:#69728a;--bg:#eef1f6;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:13px;}
+  #nav{flex:0 0 auto;display:flex;gap:16px;align-items:center;padding:8px 16px;background:#1c2330;color:#fff;font-size:12px;}
+  #nav a{color:#cdd6ea;text-decoration:none;}
+  #nav a.active{color:#fff;font-weight:700;}
+  #main{flex:1;display:flex;overflow:hidden;}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 0 8px;}
+  h2:first-child{margin-top:0;}
+  #panel{width:340px;flex:0 0 340px;background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;}
+  #canvasWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;}
+  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 3px;}
+  input,select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff;color:var(--ink);}
+  .row{display:flex;gap:8px;}
+  .row>div{flex:1;}
+  button{width:100%;padding:8px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;}
+  button.secondary{background:#3a4256;}
+  button.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent);}
+  .box{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:10px;background:#fff;}
+  .check{display:flex;align-items:center;gap:6px;margin:6px 0;}
+  .check input{width:auto;}
+  .item{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-top:6px;font-size:11px;background:#fff;}
+  .item .swatch{width:12px;height:12px;border-radius:3px;flex:0 0 12px;}
+  .item .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .item .del{cursor:pointer;color:#c0392b;font-weight:700;}
+  .labelRow{display:grid;grid-template-columns:40px 1fr 1fr;gap:6px;align-items:center;margin-top:5px;font-size:11px;}
+  #svgHost{background:#fff;border:1px solid var(--line);border-radius:10px;padding:20px;}
+  .palette{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;margin-top:4px;}
+  .sw{aspect-ratio:1;border-radius:3px;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center;
+      cursor:pointer;border:2px solid transparent;text-shadow:0 0 2px rgba(0,0,0,.7);}
+  .sw.sel{border-color:#1c2330;}
+  .palWrap{margin-top:4px;}
+  .palNum{display:flex;gap:6px;align-items:center;margin-top:4px;}
+  .palNum input{width:60px;}
+  .palNum span{font-size:10px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div id="nav"><span style="font-weight:700">Figure Tools</span><a href="index.html">Home</a><a href="timeline.html">Timeline Diagram</a><a href="domains.html" class="active">Protein Domain Map</a><a href="plots.html">Analysis Plots</a><a href="multipanel.html">Multi-Panel Layout</a></div>
+<div id="main">
+<div id="panel">
+  <h2>Protein Range</h2>
+  <div class="row"><div><input id="pStart" type="number" value="1"></div><div><input id="pEnd" type="number" value="248"></div></div>
+
+  <h2>Plot Size</h2>
+  <div class="box">
+    <div class="row"><div><label>Width</label><input id="plotW" type="number" value="20" step="0.1"></div>
+      <div><label>Height</label><input id="plotH" type="number" value="6" step="0.1"></div>
+      <div><label>Unit</label><select id="plotUnit"><option value="cm">cm</option><option value="mm">mm</option><option value="in">in</option></select></div></div>
+  </div>
+
+  <h2>Backbone</h2>
+  <div class="box">
+    <label>Height (px)</label>
+    <input id="bbHeight" type="number" value="30" min="2">
+    <div class="check"><input id="bbSame" type="checkbox" checked onchange="toggleSame('backbone',this.checked)"><label style="margin:0">Same color for fill &amp; outline</label></div>
+    <label>Fill color <span id="bbFillLbl"></span></label>
+    <div id="pal-backboneFill" class="palWrap"></div>
+    <div id="backboneOutlineBox" style="display:none">
+      <label>Outline color <span id="bbOutLbl"></span></label>
+      <div id="pal-backboneOutline" class="palWrap"></div>
+    </div>
+    <div class="row" style="margin-top:6px"><div><label>Outline Width</label><input id="bbWidth" type="number" value="2" min="0"></div>
+      <div><label>Outline Style</label><select id="bbDash"><option value="solid">Solid</option><option value="dashed">Dashed</option></select></div></div>
+  </div>
+
+  <h2>Label Settings</h2>
+  <div class="box">
+    <label>Gap between label and shape (px)</label>
+    <input id="labelGap" type="number" value="8" min="0">
+    <div class="row" style="margin-top:6px">
+      <div><label>Font</label><select id="fontFamily">
+        <option value="Arial, Helvetica, sans-serif">Arial</option>
+        <option value="Georgia, serif">Georgia</option>
+        <option value="'Times New Roman', serif">Times New Roman</option>
+        <option value="'Courier New', monospace">Courier New</option>
+        <option value="Verdana, sans-serif">Verdana</option>
+      </select></div>
+      <div><label>Style</label><select id="fontStyle">
+        <option value="normal">Normal</option><option value="italic">Italic</option>
+        <option value="bold">Bold</option><option value="bolditalic">Bold Italic</option>
+      </select></div>
+    </div>
+    <label>Size (px)</label>
+    <input id="fontSize" type="number" value="13" min="6">
+    <label>Font Color</label>
+    <select id="fontColorMode" onchange="onFontColorModeChange()">
+      <option value="default">Default (dark)</option>
+      <option value="custom">Custom color</option>
+      <option value="match">Match shape color</option>
+    </select>
+    <div id="fontColorBox" style="display:none">
+      <div id="pal-fontColor" class="palWrap"></div>
+    </div>
+  </div>
+
+  <h2>Add Domain / Structural Part</h2>
+  <div class="row"><div><input id="dStart" placeholder="Start aa"></div><div><input id="dEnd" placeholder="End aa"></div></div>
+  <input id="dName" placeholder="Name" style="margin-top:6px">
+  <div class="row" style="margin-top:6px">
+    <div><label>Name Position</label><select id="dNamePos"><option value="inside">Inside</option><option value="above">Above</option><option value="below">Below</option></select></div>
+    <div><label>Name Orientation</label><select id="dNameOrient"><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></div>
+  </div>
+  <div class="check"><input id="dHeightAuto" type="checkbox" checked onchange="$('dHeightCustomBox').style.display=this.checked?'none':'block'"><label style="margin:0">Same height as backbone</label></div>
+  <div id="dHeightCustomBox" style="display:none"><label>Custom Height (px)</label><input id="dHeightCustom" type="number" value="30"></div>
+
+  <div class="check"><input id="dSame" type="checkbox" checked onchange="toggleSame('domain',this.checked)"><label style="margin:0">Same color for fill &amp; outline</label></div>
+  <label>Fill color</label>
+  <div id="pal-domainFill" class="palWrap"></div>
+  <div id="domainOutlineBox" style="display:none">
+    <label>Outline color</label>
+    <div id="pal-domainOutline" class="palWrap"></div>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <div><label>Outline Width</label><input id="dWidth" type="number" value="2" min="0"></div>
+    <div><label>Outline Style</label><select id="dDash"><option value="solid">Solid</option><option value="dashed">Dashed</option></select></div>
+  </div>
+  <div class="check"><input id="dRandom" type="checkbox"><label style="margin:0" for="dRandom">🎲 Randomize color on add</label></div>
+  <button onclick="addDomain()">Add Domain</button>
+  <button class="ghost" onclick="quickAddRandom()">🎲 One-Click Random Domain</button>
+  <div id="domainList"></div>
+
+  <h2>Residue Number Labels</h2>
+  <div id="labelList"></div>
+
+  <button class="secondary" onclick="exportSVG()">Export as SVG</button>
+</div>
+<div id="canvasWrap"><div id="svgHost"></div></div>
+</div>
+
+<script>
+function $(id){return document.getElementById(id);}
+function hsl2hex(h,s,l){
+  s/=100; l/=100;
+  const k=n=>(n+h/30)%12;
+  const a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  const toHex=x=>Math.round(255*x).toString(16).padStart(2,'0');
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+}
+const PALETTE = Array.from({length:40},(_,i)=>hsl2hex(Math.round(i*9),65,50));
+function physicalToPx(value,unit){
+  const perInch=96;
+  const factor = unit==='cm'?perInch/2.54:unit==='mm'?perInch/25.4:perInch;
+  return (parseFloat(value)||0)*factor;
+}
+
+let colorPick = { backboneFill:3, backboneOutline:3, backboneSame:true,
+                   domainFill:14, domainOutline:14, domainSame:true, fontColor:1 };
+
+function paletteGrid(name){
+  let html='<div class="palette">';
+  PALETTE.forEach((c,i)=>{
+    html+=`<div class="sw${colorPick[name]===i+1?' sel':''}" style="background:${c}" onclick="pickColor('${name}',${i+1})">${i+1}</div>`;
+  });
+  html+='</div><div class="palNum"><input type="number" min="1" max="40" value="'+colorPick[name]+'" onchange="pickColor(\''+name+'\',this.value)"><span>type a color number 1–40</span></div>';
+  return html;
+}
+function renderPalette(name){ $('pal-'+name).innerHTML = paletteGrid(name); }
+function pickColor(name, idx){
+  idx = Math.max(1, Math.min(40, parseInt(idx)||1));
+  colorPick[name]=idx;
+  renderPalette(name);
+  if(name==='backboneFill' && colorPick.backboneSame){ colorPick.backboneOutline=idx; renderPalette('backboneOutline'); }
+  if(name==='domainFill' && colorPick.domainSame){ colorPick.domainOutline=idx; renderPalette('domainOutline'); }
+  render();
+}
+function toggleSame(which, checked){
+  colorPick[which+'Same']=checked;
+  $(which+'OutlineBox').style.display = checked?'none':'block';
+  if(checked){ colorPick[which+'Outline']=colorPick[which+'Fill']; renderPalette(which+'Outline'); }
+  render();
+}
+function onFontColorModeChange(){
+  $('fontColorBox').style.display = $('fontColorMode').value==='custom' ? 'block':'none';
+  render();
+}
+function randIdx(){ return Math.floor(Math.random()*40)+1; }
+
+let domains = [
+  {start:14,end:131,name:'MSP',namePos:'inside',nameOrient:'horizontal',fill:PALETTE[13],stroke:PALETTE[13],width:2,dash:false,heightMode:'auto',customHeight:30},
+  {start:169,end:209,name:'CC',namePos:'inside',nameOrient:'horizontal',fill:PALETTE[24],stroke:PALETTE[24],width:2,dash:false,heightMode:'auto',customHeight:30},
+  {start:228,end:248,name:'TM',namePos:'inside',nameOrient:'horizontal',fill:PALETTE[7],stroke:PALETTE[7],width:2,dash:false,heightMode:'auto',customHeight:30}
+];
+let labelSettings = {};
+
+['pStart','pEnd','bbHeight','bbWidth','bbDash','labelGap','fontFamily','fontStyle','fontSize','fontColorMode','plotW','plotH','plotUnit'].forEach(id=>{
+  $(id).addEventListener('input',render); $(id).addEventListener('change',render);
+});
+
+function currentDomainColors(){
+  if($('dRandom').checked){
+    const fi=randIdx(); const oi = colorPick.domainSame ? fi : randIdx();
+    return {fill:PALETTE[fi-1], stroke:PALETTE[oi-1]};
+  }
+  return {fill:PALETTE[colorPick.domainFill-1], stroke:PALETTE[colorPick.domainOutline-1]};
+}
+function addDomain(){
+  const s=parseFloat($('dStart').value), e=parseFloat($('dEnd').value);
+  if(isNaN(s)||isNaN(e)) return;
+  const c=currentDomainColors();
+  domains.push({start:s,end:e,name:$('dName').value||'',namePos:$('dNamePos').value,nameOrient:$('dNameOrient').value,
+    fill:c.fill,stroke:c.stroke,width:parseFloat($('dWidth').value)||2,dash:$('dDash').value==='dashed',
+    heightMode:$('dHeightAuto').checked?'auto':'custom', customHeight:parseFloat($('dHeightCustom').value)||30});
+  $('dStart').value='';$('dEnd').value='';$('dName').value='';
+  render();
+}
+function quickAddRandom(){
+  const s=parseFloat($('dStart').value), e=parseFloat($('dEnd').value);
+  if(isNaN(s)||isNaN(e)) return;
+  const ci=randIdx(); const c=PALETTE[ci-1];
+  domains.push({start:s,end:e,name:$('dName').value||'',namePos:'inside',nameOrient:'horizontal',
+    fill:c,stroke:c,width:2,dash:Math.random()<0.2,heightMode:'auto',customHeight:30});
+  $('dStart').value='';$('dEnd').value='';$('dName').value='';
+  render();
+}
+function removeDomain(i){ domains.splice(i,1); render(); }
+
+function renderDomainList(){
+  const c=$('domainList'); c.innerHTML='';
+  domains.forEach((d,i)=>{
+    const div=document.createElement('div'); div.className='item';
+    div.innerHTML=`<div class="swatch" style="background:${d.fill};border:1px solid ${d.stroke}"></div>
+      <div class="txt">${d.start}-${d.end}${d.name?' ('+d.name+')':''}</div><div class="del" onclick="removeDomain(${i})">✕</div>`;
+    c.appendChild(div);
+  });
+}
+function collectBoundaries(){
+  const pStart=parseFloat($('pStart').value)||0, pEnd=parseFloat($('pEnd').value)||0;
+  const vals = new Set([pStart,pEnd]);
+  domains.forEach(d=>{ vals.add(d.start); vals.add(d.end); });
+  [...vals].forEach(v=>{ if(!labelSettings[v]) labelSettings[v]={pos:'above',orient:'horizontal'}; });
+  Object.keys(labelSettings).forEach(k=>{ if(!vals.has(parseFloat(k))) delete labelSettings[k]; });
+  return [...vals].sort((a,b)=>a-b);
+}
+function renderLabelList(boundaries){
+  const c=$('labelList'); c.innerHTML='';
+  boundaries.forEach(v=>{
+    const s=labelSettings[v];
+    const row=document.createElement('div'); row.className='labelRow';
+    row.innerHTML=`<div>${v}</div>
+      <select onchange="labelSettings[${v}].pos=this.value;render()">
+        <option value="above" ${s.pos==='above'?'selected':''}>Above</option>
+        <option value="below" ${s.pos==='below'?'selected':''}>Below</option>
+      </select>
+      <select onchange="labelSettings[${v}].orient=this.value;render()">
+        <option value="horizontal" ${s.orient==='horizontal'?'selected':''}>Horiz.</option>
+        <option value="vertical" ${s.orient==='vertical'?'selected':''}>Vert.</option>
+      </select>`;
+    c.appendChild(row);
+  });
+}
+function escXml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fontAttrs(){
+  const m=$('fontStyle').value;
+  let style='normal',weight='normal';
+  if(m==='italic') style='italic';
+  else if(m==='bold') weight='bold';
+  else if(m==='bolditalic'){style='italic';weight='bold';}
+  return `font-family="${$('fontFamily').value}" font-style="${style}" font-weight="${weight}" font-size="${$('fontSize').value}"`;
+}
+function textColor(shapeColor){
+  const mode=$('fontColorMode').value;
+  if(mode==='match') return shapeColor;
+  if(mode==='custom') return PALETTE[colorPick.fontColor-1];
+  return '#1c2330';
+}
+
+function render(){
+  renderDomainList();
+  const boundaries = collectBoundaries();
+  renderLabelList(boundaries);
+  renderPalette('backboneFill'); renderPalette('backboneOutline');
+  renderPalette('domainFill'); renderPalette('domainOutline'); renderPalette('fontColor');
+
+  const pStart=parseFloat($('pStart').value)||0, pEnd=parseFloat($('pEnd').value)||1;
+  const W=physicalToPx($('plotW').value,$('plotUnit').value)||1000, marginL=50, marginR=50, drawW=W-marginL-marginR;
+  const cy=150;
+  const x=v=> marginL + (v-pStart)/(pEnd-pStart)*drawW;
+  const bbH=parseFloat($('bbHeight').value)||30;
+  const gap=parseFloat($('labelGap').value)||0;
+  const fsz=parseFloat($('fontSize').value)||13;
+
+  const shapeTops=[cy-bbH/2], shapeBottoms=[cy+bbH/2];
+  domains.forEach(d=>{
+    const h = d.heightMode==='auto'? bbH : d.customHeight;
+    shapeTops.push(cy-h/2); shapeBottoms.push(cy+h/2);
+  });
+  const globalTop=Math.min(...shapeTops), globalBottom=Math.max(...shapeBottoms);
+  const topY = globalTop - gap;
+  const bottomY = globalBottom + gap + fsz*0.8;
+  const userH = physicalToPx($('plotH').value,$('plotUnit').value)||300;
+  const H = Math.max(userH, bottomY+30, (globalTop<40?80-globalTop:0));
+
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+  svg+=`<rect width="${W}" height="${H}" fill="#ffffff"/>`;
+
+  const bbFill=PALETTE[colorPick.backboneFill-1], bbStroke=PALETTE[colorPick.backboneOutline-1];
+  const bbDash = $('bbDash').value==='dashed' ? 'stroke-dasharray="6,4"':'';
+  svg+=`<rect x="${x(pStart)}" y="${cy-bbH/2}" width="${x(pEnd)-x(pStart)}" height="${bbH}" fill="${bbFill}" stroke="${bbStroke}" stroke-width="${$('bbWidth').value}" ${bbDash}/>`;
+
+  domains.forEach(d=>{
+    const h = d.heightMode==='auto'? bbH : d.customHeight;
+    const dx=x(d.start), dw=x(d.end)-x(d.start);
+    const dash = d.dash ? 'stroke-dasharray="6,4"':'';
+    svg+=`<rect x="${dx}" y="${cy-h/2}" width="${dw}" height="${h}" fill="${d.fill}" stroke="${d.stroke}" stroke-width="${d.width}" ${dash}/>`;
+    if(d.name){
+      const midx=dx+dw/2;
+      let ty = d.namePos==='inside'? cy+fsz*0.35 : d.namePos==='above'? topY : bottomY;
+      let rot = d.nameOrient==='vertical' ? `transform="rotate(-90 ${midx} ${ty})"`:'';
+      svg+=`<text x="${midx}" y="${ty}" ${fontAttrs()} fill="${textColor(d.stroke)}" text-anchor="middle" ${rot}>${escXml(d.name)}</text>`;
+    }
+  });
+
+  boundaries.forEach(v=>{
+    const s=labelSettings[v]; const bx=x(v);
+    const ty = s.pos==='above'? topY : bottomY;
+    const rot = s.orient==='vertical' ? `transform="rotate(-90 ${bx} ${ty})"`:'';
+    svg+=`<text x="${bx}" y="${ty}" ${fontAttrs()} fill="${textColor(bbStroke)}" text-anchor="middle" ${rot}>${v}</text>`;
+  });
+
+  svg+=`</svg>`;
+  $('svgHost').innerHTML=svg;
+}
+function exportSVG(){
+  const svgEl=$('svgHost').querySelector('svg');
+  const blob=new Blob([svgEl.outerHTML],{type:'image/svg+xml'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='domain-map.svg';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+render();
+</script>
+</body>
+</html>

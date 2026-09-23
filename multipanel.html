@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-Panel Layout</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/svg2pdf.js/2.2.3/svg2pdf.umd.min.js"></script>
+<style>
+  :root{--ink:#1c2330;--line:#d8dee8;--panel:#fbfcfe;--accent:#2f5fd6;--muted:#69728a;--bg:#eef1f6;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);
+       display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:13px;}
+  #nav{flex:0 0 auto;display:flex;gap:16px;align-items:center;padding:8px 16px;background:#1c2330;color:#fff;font-size:12px;}
+  #nav a{color:#cdd6ea;text-decoration:none;} #nav a.active{color:#fff;font-weight:700;}
+  #main{flex:1;display:flex;overflow:hidden;}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 0 8px;}
+  h2:first-child{margin-top:0;}
+  #panel{width:390px;flex:0 0 390px;background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;}
+  #canvasWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;}
+  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 3px;}
+  input,select,textarea{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff;color:var(--ink);font-family:inherit;}
+  textarea{height:56px;resize:vertical;font-family:monospace;font-size:11px;}
+  .row{display:flex;gap:8px;} .row>div{flex:1;}
+  button{width:100%;padding:8px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;}
+  button.secondary{background:#3a4256;} button.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent);}
+  .box{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:10px;background:#fff;}
+  .check{display:flex;align-items:center;gap:6px;margin:6px 0;} .check input{width:auto;}
+  .tabs{display:flex;gap:4px;margin-bottom:10px;} .tabs button{margin:0;background:#e4e8ef;color:var(--ink);}
+  .tabs button.active{background:var(--accent);color:#fff;}
+  .item{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-top:6px;font-size:11px;background:#fff;}
+  .item .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .item .del{cursor:pointer;color:#c0392b;font-weight:700;}
+  #svgHost{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;}
+  #svgHost svg{max-width:100%;height:auto;}
+  .palette{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;margin-top:4px;}
+  .sw{aspect-ratio:1;border-radius:3px;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid transparent;text-shadow:0 0 2px rgba(0,0,0,.7);}
+  .sw.sel{border-color:#1c2330;}
+  .palNum{display:flex;gap:6px;align-items:center;margin-top:4px;} .palNum input{width:60px;} .palNum span{font-size:10px;color:var(--muted);}
+  .hint{font-size:10px;color:var(--muted);margin-top:4px;}
+  .subh{font-size:11px;font-weight:700;margin-top:10px;color:var(--ink);}
+  .seriesBox{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;}
+  .plotEntry{border:2px solid var(--accent);border-radius:8px;padding:10px;margin-top:10px;background:#fff;}
+  .dsEntry{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;background:#fff;}
+  .computed{font-size:11px;color:var(--muted);margin-top:6px;}
+</style>
+</head>
+<body>
+<div id="nav"><span style="font-weight:700">Figure Tools</span><a href="index.html">Home</a><a href="timeline.html">Timeline Diagram</a><a href="domains.html">Protein Domain Map</a><a href="plots.html">Analysis Plots</a><a href="multipanel.html" class="active">Multi-Panel Layout</a></div>
+<div id="main">
+<div id="panel">
+  <div class="tabs">
+    <button id="tabGrid" class="active" onclick="switchMode('grid')">Violin + Density Grid</button>
+    <button id="tabStack" onclick="switchMode('stack')">Line Stack</button>
+  </div>
+
+  <div id="gridUI">
+    <h2>Unit for all sizes</h2>
+    <select id="gUnit"><option value="cm">cm</option><option value="mm">mm</option><option value="in">in</option></select>
+
+    <h2>Datasets (one file = one grid column)</h2>
+    <div class="hint">Columns wrap in groups of 3: files 1\u20133 form the first violin+density row pair, files 4\u20136 the next pair, etc.</div>
+    <input type="file" id="gridFiles" accept=".csv,.tsv,.txt,.xlsx,.xls" multiple>
+    <button class="ghost" onclick="loadGridSample()">Load 3-Panel Sample</button>
+    <div id="gridDatasetList"></div>
+
+    <h2>Panel Sizing</h2>
+    <div class="box">
+      <div class="check"><input id="gManual" type="checkbox" onchange="renderSizeBox()"><label style="margin:0">Manually size columns &amp; rows (else fit to page)</label></div>
+      <div id="gAutoSizeBox">
+        <div class="row"><div><label>Page Width</label><input id="gPageW" type="number" value="21" step="0.1"></div>
+          <div><label>Page Height</label><input id="gPageH" type="number" value="29.7" step="0.1"></div></div>
+        <button class="ghost" onclick="$('gPageW').value=21;$('gPageH').value=29.7;$('gUnit').value='cm';render()">Use A4 Portrait</button>
+      </div>
+      <div id="gManualSizeBox" style="display:none">
+        <div class="row"><div><label>Column 1 Width</label><input id="gColW1" type="number" value="7" step="0.1"></div>
+          <div><label>Column 2 Width</label><input id="gColW2" type="number" value="7" step="0.1"></div>
+          <div><label>Column 3 Width</label><input id="gColW3" type="number" value="7" step="0.1"></div></div>
+        <div class="row" style="margin-top:6px"><div><label>Violin Row Height</label><input id="gRowHV" type="number" value="7" step="0.1"></div>
+          <div><label>Density Row Height</label><input id="gRowHD" type="number" value="6" step="0.1"></div></div>
+        <div class="computed" id="gComputedSize"></div>
+      </div>
+    </div>
+
+    <h2>Style</h2>
+    <div class="box">
+      <div class="row"><div><label>Y Ticks (violin)</label><input id="gYTicksV" type="number" value="5"></div>
+        <div><label>Ticks (density)</label><input id="gTicksD" type="number" value="4"></div></div>
+      <label>Space: axis \u2192 tick labels (px)</label><input id="gTickPad" type="number" value="7" min="0">
+      <div class="check"><input id="gLabelsOn" type="checkbox" checked><label style="margin:0">Panel labels (A, B, C\u2026)</label></div>
+      <div class="check"><input id="gVlOn" type="checkbox" checked><label style="margin:0">Show violin legend (25\u201375%, IQR, Mean) once</label></div>
+    </div>
+    <div class="box" id="gFontTick"></div>
+    <div class="box" id="gFontTitle"></div>
+
+    <button class="secondary" onclick="exportGridSVG()">Export as SVG</button>
+    <button class="secondary" onclick="exportGridPDF()">Export as Vector PDF</button>
+  </div>
+
+  <div id="stackUI" style="display:none">
+    <h2>Unit for all sizes</h2>
+    <select id="sUnit"><option value="cm">cm</option><option value="mm">mm</option><option value="in">in</option></select>
+    <div class="check" style="margin-top:10px"><input id="sameFormat" type="checkbox" checked onchange="renderStackUI()"><label style="margin:0">Same formatting for all plots</label></div>
+    <div id="sharedCfgBox"></div>
+    <h2>Line Plots (stacked top \u2192 bottom)</h2>
+    <button class="ghost" onclick="addLinePlot()">+ Add Line Plot</button>
+    <div id="stackList"></div>
+    <button class="secondary" onclick="exportStackSVG()">Export as SVG</button>
+    <button class="secondary" onclick="exportStackPDF()">Export as Vector PDF</button>
+  </div>
+</div>
+<div id="canvasWrap"><div id="svgHost"></div></div>
+</div>
+<script src="shared.js"></script>
+<script>
+function $(id){return document.getElementById(id);}
+let mode='grid';
+function switchMode(m){ mode=m; $('tabGrid').classList.toggle('active',m==='grid'); $('tabStack').classList.toggle('active',m==='stack');
+  $('gridUI').style.display=m==='grid'?'block':'none'; $('stackUI').style.display=m==='stack'?'block':'none'; render(); }
+function randn(){ let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+
+/* ================= GRID (Violin + Density) ================= */
+let datasets=[];
+let gTickPal, gTitlePal;
+$('gFontTick').innerHTML = fontRoleHTML('gtick','Axis Tick Numbers');
+$('gFontTitle').innerHTML = fontRoleHTML('gtitle','Axis Titles');
+function initGridRoles(){ gTickPal=initFontRole('gtick',render); gTitlePal=initFontRole('gtitle',render); }
+['gUnit','gPageW','gPageH','gColW1','gColW2','gColW3','gRowHV','gRowHD','gYTicksV','gTicksD','gTickPad','gLabelsOn','gVlOn'].forEach(id=>{
+  $(id).addEventListener('input',render); $(id).addEventListener('change',render);
+});
+function renderSizeBox(){
+  $('gAutoSizeBox').style.display = $('gManual').checked?'none':'block';
+  $('gManualSizeBox').style.display = $('gManual').checked?'block':'none';
+  render();
+}
+$('gridFiles').addEventListener('change', e=>{
+  [...e.target.files].forEach(f=>{
+    loadFile(f, csv=>{
+      const t=parseDelimited(csv);
+      datasets.push({name:f.name.replace(/\.[^.]+$/,''), cols:t.cols, colConfig:makeColConfig(t.headers,0)});
+      renderDatasetList(); render();
+    });
+  });
+});
+function removeDataset(i){ datasets.splice(i,1); renderDatasetList(); render(); }
+function renderDatasetList(){
+  const c=$('gridDatasetList'); c.innerHTML='';
+  datasets.forEach((d,i)=>{
+    const wrap=document.createElement('div'); wrap.className='dsEntry';
+    wrap.innerHTML=`<div class="row"><div><b>${i+1}. ${d.name}</b></div><div style="text-align:right"><span class="del" onclick="removeDataset(${i})" style="cursor:pointer;color:#c0392b">Remove \u2715</span></div></div>
+      <div class="hint">Column ${i%3+1} of the grid \u2014 uncheck a group below to exclude it from this dataset's violin+density panels.</div>
+      <div id="dsCols${i}"></div>`;
+    c.appendChild(wrap);
+    renderColConfigList($('dsCols'+i), d.colConfig, render, false);
+  });
+  renderSizeCompute();
+}
+function loadGridSample(){
+  datasets=[];
+  const names=['RMSD','Rg','SASA'], base=[[2.8,0.35],[15.8,0.25],[8000,180]];
+  names.forEach((nm,ni)=>{
+    const heads=['Wild','T46I','P56H','P56S'], n=150;
+    const cols=heads.map((h,gi)=>Array.from({length:n},()=> base[ni][0]+(gi*0.03*base[ni][0]*0.02)+base[ni][1]*randn()));
+    datasets.push({name:nm, cols, colConfig:makeColConfig(heads,0)});
+  });
+  renderDatasetList(); render();
+}
+function renderSizeCompute(){
+  if(!$('gManual').checked){ $('gComputedSize').textContent=''; return; }
+  const cols=Math.min(Math.max(datasets.length,1),3), triplets=Math.max(Math.ceil(datasets.length/3),1);
+  const w1=parseFloat($('gColW1').value)||0, w2=parseFloat($('gColW2').value)||0, w3=parseFloat($('gColW3').value)||0;
+  const totalW=[w1,w2,w3].slice(0,cols).reduce((a,b)=>a+b,0);
+  const totalH=triplets*((parseFloat($('gRowHV').value)||0)+(parseFloat($('gRowHD').value)||0));
+  $('gComputedSize').textContent = `Computed page size: ${totalW.toFixed(1)} \u00d7 ${totalH.toFixed(1)} ${$('gUnit').value}`;
+}
+
+function panelViolin(dataset,x,y,w,h,fontA,fontB,tickCol,titleCol,ticksN,tickPad,label){
+  const ml=x+42,mr=x+w-8,mt=y+18,mb=y+h-30, drawW=mr-ml, drawH=mb-mt;
+  const groups=dataset.colConfig.filter(c=>c.visible).map(c=>({label:c.label,color:c.color,data:dataset.cols[c.colIndex]||[]})).filter(g=>g.data.length>1);
+  if(!groups.length) return '';
+  const all=groups.flatMap(g=>g.data); const pad=(Math.max(...all)-Math.min(...all))*0.15||1;
+  const yMin=Math.min(...all)-pad, yMax=Math.max(...all)+pad;
+  const yS=v=> mt+drawH-(v-yMin)/(yMax-yMin)*drawH;
+  const slotW=drawW/groups.length;
+  let s=`<rect x="${ml}" y="${mt}" width="${drawW}" height="${drawH}" fill="none" stroke="#222" stroke-width="1.1"/>`;
+  if(label) s+=`<text x="${x+2}" y="${y+14}" font-size="16" font-weight="800">${label}</text>`;
+  linTicks(yMin,yMax,ticksN).forEach(t=>{
+    const ty=yS(t);
+    s+=`<line x1="${ml-3}" y1="${ty}" x2="${ml}" y2="${ty}" stroke="#222"/>`;
+    s+=`<text x="${ml-3-tickPad}" y="${ty+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${t}</text>`;
+  });
+  groups.forEach((g,i)=>{
+    const cx=ml+slotW*(i+0.5);
+    const bw=silvermanBW(g.data)||1;
+    const pts=Array.from({length:30},(_,k)=>yMin+k*(yMax-yMin)/29);
+    const dens=gaussianKDE(g.data,pts,bw); const maxD=Math.max(...dens)||1;
+    const hw=dens.map(d=> d/maxD*slotW*0.4);
+    let d=''; pts.forEach((p,k)=>{d+=(k===0?'M':'L')+(cx-hw[k])+' '+yS(p)+' ';});
+    for(let k=pts.length-1;k>=0;k--) d+='L'+(cx+hw[k])+' '+yS(pts[k])+' '; d+='Z';
+    s+=`<path d="${d}" fill="${g.color}" fill-opacity="0.55" stroke="${g.color}" stroke-width="1.2"/>`;
+    const st=quartileStats(g.data);
+    s+=`<line x1="${cx}" y1="${yS(st.loW)}" x2="${cx}" y2="${yS(st.hiW)}" stroke="#111" stroke-width="1.4"/>`;
+    s+=`<rect x="${cx-4}" y="${yS(st.q3)}" width="8" height="${yS(st.q1)-yS(st.q3)}" fill="#111"/>`;
+    s+=`<rect x="${cx-2}" y="${yS(st.mean)-2}" width="4" height="4" fill="#e53935"/>`;
+    const fsz=(fontB.match(/font-size="(\d+)/)||[])[1]||13;
+    const fam=(fontB.match(/font-family="([^"]+)/)||[])[1]||'Arial';
+    s+=`<text x="${cx}" y="${mb+16}" text-anchor="middle" font-size="${fsz}" font-weight="700" fill="${g.color}" font-family="${fam}">${escXml(g.label)}</text>`;
+  });
+  return s;
+}
+function panelDensity(dataset,x,y,w,h,fontA,tickCol,ticksN,tickPad){
+  const ml=x+42,mr=x+w-8,mt=y+22,mb=y+h-24, drawW=mr-ml, drawH=mb-mt;
+  const groups=dataset.colConfig.filter(c=>c.visible).map(c=>({label:c.label,color:c.color,data:dataset.cols[c.colIndex]||[]})).filter(g=>g.data.length>1);
+  if(!groups.length) return '';
+  const all=groups.flatMap(g=>g.data);
+  const xMin=Math.min(...all), xMax=Math.max(...all), bins=16, binW=(xMax-xMin)/bins;
+  const hists=groups.map(g=>{ const c=new Array(bins).fill(0); g.data.forEach(v=>{let b=Math.floor((v-xMin)/binW); if(b>=bins)b=bins-1; if(b<0)b=0; c[b]++;}); return c.map(v=>v/(g.data.length*binW)); });
+  const yMax=Math.max(...hists.flat())*1.1||1;
+  const xS=v=> ml+(v-xMin)/(xMax-xMin)*drawW, yS=v=> mt+drawH-(v/yMax)*drawH;
+  let s=`<rect x="${ml}" y="${mt}" width="${drawW}" height="${drawH}" fill="none" stroke="#222" stroke-width="1.1"/>`;
+  linTicks(xMin,xMax,ticksN).forEach(t=>{ const tx=xS(t); s+=`<line x1="${tx}" y1="${mt+drawH}" x2="${tx}" y2="${mt+drawH+3}" stroke="#222"/><text x="${tx}" y="${mt+drawH+3+tickPad+9}" text-anchor="middle" ${fontA} fill="${tickCol}">${t}</text>`; });
+  linTicks(0,yMax,ticksN).forEach(t=>{ const ty=yS(t); s+=`<line x1="${ml-3}" y1="${ty}" x2="${ml}" y2="${ty}" stroke="#222"/><text x="${ml-3-tickPad}" y="${ty+3.5}" text-anchor="end" ${fontA} fill="${tickCol}">${t}</text>`; });
+  groups.forEach((g,gi)=>{
+    let d='M'+xS(xMin)+' '+yS(0)+' ';
+    hists[gi].forEach((h,b)=>{ const x1=xS(xMin+b*binW), x2=xS(xMin+(b+1)*binW); d+=`L${x1} ${yS(h)} L${x2} ${yS(h)} `; });
+    d+='L'+xS(xMax)+' '+yS(0);
+    s+=`<path d="${d}" fill="${g.color}" fill-opacity="0.15" stroke="${g.color}" stroke-width="1.4"/>`;
+  });
+  return s;
+}
+function buildGridSVG(){
+  if(!gTickPal) initGridRoles();
+  renderSizeCompute();
+  const manual=$('gManual').checked;
+  const cols=Math.min(Math.max(datasets.length,1),3), triplets=Math.max(Math.ceil(datasets.length/3),1), rows=triplets*2;
+  const marginOuter=20;
+  let colWidths, rowHV, rowHD, W, H;
+  if(manual){
+    colWidths=[$('gColW1').value,$('gColW2').value,$('gColW3').value].slice(0,cols).map(v=>physicalToPx(v,$('gUnit').value));
+    rowHV=physicalToPx($('gRowHV').value,$('gUnit').value); rowHD=physicalToPx($('gRowHD').value,$('gUnit').value);
+    W=colWidths.reduce((a,b)=>a+b,0)+marginOuter*2; H=triplets*(rowHV+rowHD)+marginOuter*2;
+  } else {
+    W=physicalToPx($('gPageW').value,$('gUnit').value)||800; H=physicalToPx($('gPageH').value,$('gUnit').value)||1100;
+    const cellW=(W-marginOuter*2)/cols; colWidths=Array(cols).fill(cellW);
+    const cellH=(H-marginOuter*2)/rows; rowHV=cellH; rowHD=cellH;
+  }
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/>`;
+  if(!datasets.length){ svg+='</svg>'; return svg; }
+  const fontA=roleFontAttrs('gtick'), fontB=roleFontAttrs('gtitle'), tickCol=roleColor('gtick',gTickPal,'#333'), titleCol=roleColor('gtitle',gTitlePal,'#1c2330');
+  const ticksV=parseInt($('gYTicksV').value)||5, ticksD=parseInt($('gTicksD').value)||4, tickPad=parseFloat($('gTickPad').value)||7;
+  const labels='ABCDEFGHIJKLMNOP';
+  const colX=[marginOuter]; for(let i=1;i<cols;i++) colX.push(colX[i-1]+colWidths[i-1]);
+  datasets.forEach((ds,i)=>{
+    const tripletIdx=Math.floor(i/3), colIdx=i%3;
+    const vRow=tripletIdx*2, dRow=tripletIdx*2+1;
+    const x=colX[colIdx], yV=marginOuter+vRow*rowHV+(vRow>0?Math.floor(vRow/2)*rowHD:0);
+    const yD=yV+rowHV;
+    const w=colWidths[colIdx];
+    svg+=panelViolin(ds,x,yV,w,rowHV,fontA,fontB,tickCol,titleCol,ticksV,tickPad, $('gLabelsOn').checked?labels[i]:null);
+    svg+=panelDensity(ds,x,yD,w,rowHD,fontA,tickCol,ticksD,tickPad);
+  });
+  if($('gVlOn').checked){
+    const items=[{type:'box',color:'#111',label:'25%~75%',font:fontA,textColor:tickCol},
+                 {type:'line',color:'#111',label:'Range within 1.5 IQR',font:fontA,textColor:tickCol},
+                 {type:'dot',color:'#e53935',label:'Mean',font:fontA,textColor:tickCol}];
+    svg+=drawLegend(items,{position:'top-right',layout:'vertical',gap:4,ml:colX[cols-1],mr:marginOuter,mt:marginOuter,mb:marginOuter,W,H});
+  }
+  svg+='</svg>'; return svg;
+}
+function exportGridSVG(){ const div=document.createElement('div'); div.innerHTML=buildGridSVG(); downloadSVG(div.querySelector('svg'),'grid-figure.svg'); }
+function exportGridPDF(){
+  const div=document.createElement('div'); div.innerHTML=buildGridSVG(); const svgEl=div.querySelector('svg');
+  const unit=$('gUnit').value;
+  const wIn=unit==='in'?parseFloat(svgEl.getAttribute('width'))/96 : (parseFloat(svgEl.getAttribute('width'))/96);
+  const hIn=parseFloat(svgEl.getAttribute('height'))/96;
+  exportVectorPDF(svgEl, wIn, hIn, 'grid-figure.pdf');
+}
+
+/* ================= LINE STACK ================= */
+let linePlots=[];
+function defaultCfg(){ return {xStart:'',xEnd:'',xTicks:6,xPad:8,xOffset:0,yStart:'',yEnd:'',yTicks:6,yPad:8,width:16,height:4}; }
+function cfgFormHTML(id){
+  return `<div class="row"><div><label>X Start</label><input id="${id}XStart"></div><div><label>X End</label><input id="${id}XEnd"></div><div><label>X Ticks</label><input id="${id}XTicks" type="number" value="6"></div></div>
+  <label>Renumber residues: add offset to X values</label><input id="${id}XOffset" type="number" value="0">
+  <div class="row" style="margin-top:6px"><div><label>Y Start</label><input id="${id}YStart"></div><div><label>Y End</label><input id="${id}YEnd"></div><div><label>Y Ticks</label><input id="${id}YTicks" type="number" value="6"></div></div>
+  <div class="row" style="margin-top:6px"><div><label>X label space (px)</label><input id="${id}XPad" type="number" value="8"></div><div><label>Y label space (px)</label><input id="${id}YPad" type="number" value="8"></div></div>
+  <div class="row" style="margin-top:6px"><div><label>Plot Width</label><input id="${id}Width" type="number" value="16" step="0.1"></div><div><label>Plot Height</label><input id="${id}Height" type="number" value="4" step="0.1"></div></div>`;
+}
+$('sharedCfgBox').innerHTML = '<div class="box">'+cfgFormHTML('shared')+'</div>';
+document.addEventListener('input', e=>{ if(e.target.id && e.target.id.startsWith('shared')) render(); });
+document.addEventListener('change', e=>{ if(e.target.id && e.target.id.startsWith('shared')) render(); });
+
+function addLinePlot(){
+  linePlots.push({name:'Plot '+(linePlots.length+1), table:{headers:[],cols:[]}, colConfig:[], regions:[], cfg:defaultCfg()});
+  renderStackUI(); render();
+}
+function removeLinePlot(i){ linePlots.splice(i,1); renderStackUI(); render(); }
+function updateLPData(i, csvText){
+  const t=parseDelimited(csvText);
+  linePlots[i].table=t; linePlots[i].colConfig=makeColConfig(t.headers,1);
+  renderStackUI(); render();
+}
+function renderStackUI(){
+  const c=$('stackList'); c.innerHTML='';
+  const same=$('sameFormat').checked;
+  linePlots.forEach((lp,i)=>{
+    const div=document.createElement('div'); div.className='plotEntry';
+    div.innerHTML=`<div class="row"><div><b>${lp.name}</b></div><div style="text-align:right"><span class="del" onclick="removeLinePlot(${i})" style="cursor:pointer;color:#c0392b">Remove \u2715</span></div></div>
+      <label>Paste data (col1=X, rest=series)</label><textarea id="lpText${i}"></textarea>
+      <div class="row" style="margin-top:6px"><div><button class="ghost" onclick="updateLPData(${i}, document.getElementById('lpText${i}').value)">Parse</button></div>
+      <div><input type="file" accept=".csv,.tsv,.xlsx,.xls" onchange="loadFile(this.files[0], csv=>updateLPData(${i},csv))"></div></div>
+      <div id="lpCols${i}" style="margin-top:6px"></div>
+      <div id="lpRegions${i}"></div>
+      <div class="row" style="margin-top:6px"><div><input id="lpRStart${i}" placeholder="Region start"></div><div><input id="lpREnd${i}" placeholder="Region end"></div></div>
+      <input id="lpRLabel${i}" placeholder="Region label" style="margin-top:6px">
+      <div id="lpRPal${i}" style="margin-top:6px"></div>
+      <button onclick="addLPRegion(${i})">Add Region</button>
+      ${same?'' : '<div class="box" style="margin-top:10px">'+cfgFormHTML('lp'+i)+'</div>'}`;
+    c.appendChild(div);
+    renderColConfigList($('lpCols'+i), lp.colConfig, render, true);
+    renderLPRegions(i);
+    const pal=createPalette($('lpRPal'+i), 1, ()=>{});
+    lp._regionPal=pal;
+    if(!same){
+      const cfg=lp.cfg;
+      ['XStart','XEnd','XTicks','XOffset','YStart','YEnd','YTicks','XPad','YPad','Width','Height'].forEach(k=>{
+        const el=document.getElementById('lp'+i+k); const key=k.charAt(0).toLowerCase()+k.slice(1);
+        if(el){ el.value=cfg[key]; el.addEventListener('input',()=>{ cfg[key]=el.value; render(); }); el.addEventListener('change',()=>{ cfg[key]=el.value; render(); }); }
+      });
+    }
+  });
+}
+function addLPRegion(i){
+  const s=parseFloat($('lpRStart'+i).value), e=parseFloat($('lpREnd'+i).value);
+  if(isNaN(s)||isNaN(e)) return;
+  const c=linePlots[i]._regionPal.get();
+  linePlots[i].regions.push({start:s,end:e,label:$('lpRLabel'+i).value||'',color:c.color});
+  $('lpRStart'+i).value=''; $('lpREnd'+i).value=''; $('lpRLabel'+i).value='';
+  renderLPRegions(i); render();
+}
+function removeLPRegion(i,ri){ linePlots[i].regions.splice(ri,1); renderLPRegions(i); render(); }
+function renderLPRegions(i){
+  const c=$('lpRegions'+i); if(!c) return; c.innerHTML='';
+  linePlots[i].regions.forEach((r,ri)=>{
+    const d=document.createElement('div'); d.className='item';
+    d.innerHTML=`<div style="width:12px;height:12px;border-radius:3px;background:${r.color}"></div><div class="txt">${r.start}-${r.end}${r.label?' ('+r.label+')':''}</div><div class="del" onclick="removeLPRegion(${i},${ri})">\u2715</div>`;
+    c.appendChild(d);
+  });
+}
+function getCfg(i){ return $('sameFormat').checked ? readCfgFields('shared') : linePlots[i].cfg; }
+function readCfgFields(id){
+  return {xStart:$(id+'XStart').value,xEnd:$(id+'XEnd').value,xTicks:$(id+'XTicks').value,xOffset:$(id+'XOffset').value,
+    yStart:$(id+'YStart').value,yEnd:$(id+'YEnd').value,yTicks:$(id+'YTicks').value,
+    xPad:$(id+'XPad').value,yPad:$(id+'YPad').value,width:$(id+'Width').value,height:$(id+'Height').value};
+}
+function orBlank(v,fb){ return (v!==''&&v!==undefined&&v!==null&&!isNaN(parseFloat(v))) ? parseFloat(v) : fb; }
+function panelLine(lp,cfg,x,y,w,h){
+  const ml=x+55,mr=x+w-15,mt=y+10,mb=y+h-32, drawW=mr-ml, drawH=mb-mt;
+  const offset=parseFloat(cfg.xOffset)||0;
+  const xs=(lp.table.cols[0]||[]).map(v=>v+offset);
+  const series=(lp.colConfig||[]).filter(c=>c.visible).map(c=>({label:c.label,color:c.color,width:c.width,dash:c.dash,data:lp.table.cols[c.colIndex]||[]})).filter(s=>s.data.length>1);
+  if(!xs.length||!series.length) return '';
+  const xMin=orBlank(cfg.xStart,Math.min(...xs)), xMax=orBlank(cfg.xEnd,Math.max(...xs));
+  const allY=series.flatMap(s=>s.data);
+  const yMin=orBlank(cfg.yStart,Math.min(...allY)), yMax=orBlank(cfg.yEnd,Math.max(...allY)*1.15);
+  const xPad=parseFloat(cfg.xPad)||8, yPad=parseFloat(cfg.yPad)||8;
+  const xS=v=> ml+(v-xMin)/(xMax-xMin)*drawW, yS=v=> mt+drawH-(v-yMin)/(yMax-yMin)*drawH;
+  let s='';
+  (lp.regions||[]).forEach(r=>{ const rx=xS(Math.max(r.start,xMin)), rw=xS(Math.min(r.end,xMax))-rx; if(rw>0) s+=`<rect x="${rx}" y="${mt}" width="${rw}" height="${drawH}" fill="${r.color}" fill-opacity="0.3"/>`; });
+  s+=`<rect x="${ml}" y="${mt}" width="${drawW}" height="${drawH}" fill="none" stroke="#222" stroke-width="1.1"/>`;
+  linTicks(xMin,xMax,parseInt(cfg.xTicks)||6).forEach(t=>{ const tx=xS(t); s+=`<line x1="${tx}" y1="${mt+drawH}" x2="${tx}" y2="${mt+drawH+3}" stroke="#222"/><text x="${tx}" y="${mt+drawH+3+xPad+10}" text-anchor="middle" font-size="11">${t}</text>`; });
+  linTicks(yMin,yMax,parseInt(cfg.yTicks)||6).forEach(t=>{ const ty=yS(t); s+=`<line x1="${ml-3}" y1="${ty}" x2="${ml}" y2="${ty}" stroke="#222"/><text x="${ml-3-yPad}" y="${ty+3.5}" text-anchor="end" font-size="11">${t}</text>`; });
+  series.forEach(sr=>{ let d=''; xs.forEach((xv,i)=>{ if(sr.data[i]!==undefined) d+=(d===''?'M':'L')+xS(xv)+' '+yS(sr.data[i])+' '; }); s+=`<path d="${d}" fill="none" stroke="${sr.color}" stroke-width="${sr.width}" ${sr.dash?'stroke-dasharray="6,4"':''}/>`; });
+  let lx=ml+8, ly=mt+14;
+  series.forEach(sr=>{ s+=`<line x1="${lx}" y1="${ly}" x2="${lx+14}" y2="${ly}" stroke="${sr.color}" stroke-width="${sr.width}"/><text x="${lx+18}" y="${ly+4}" font-size="11">${escXml(sr.label)}</text>`; lx+=24+sr.label.length*6.5+14; });
+  return s;
+}
+function buildStackSVG(){
+  const unit=$('sUnit').value;
+  const widthsPx=linePlots.map((lp,i)=> physicalToPx(getCfg(i).width, unit));
+  const heightsPx=linePlots.map((lp,i)=> physicalToPx(getCfg(i).height, unit));
+  const W=Math.max(...widthsPx, physicalToPx(10,unit)), H=heightsPx.reduce((a,b)=>a+b,0)||100;
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/>`;
+  let y=0;
+  linePlots.forEach((lp,i)=>{ const cfg=getCfg(i); svg+=panelLine(lp,cfg,0,y,widthsPx[i],heightsPx[i]); y+=heightsPx[i]; });
+  svg+='</svg>'; return svg;
+}
+function exportStackSVG(){ const div=document.createElement('div'); div.innerHTML=buildStackSVG(); downloadSVG(div.querySelector('svg'),'line-stack.svg'); }
+function exportStackPDF(){
+  const div=document.createElement('div'); div.innerHTML=buildStackSVG(); const svgEl=div.querySelector('svg');
+  const wIn=parseFloat(svgEl.getAttribute('width'))/96, hIn=parseFloat(svgEl.getAttribute('height'))/96;
+  exportVectorPDF(svgEl,wIn,hIn,'line-stack.pdf');
+}
+
+function render(){
+  if(mode==='grid'){ $('svgHost').innerHTML = buildGridSVG(); }
+  else { $('svgHost').innerHTML = buildStackSVG(); }
+}
+loadGridSample();
+render();
+</script>
+</body>
+</html>

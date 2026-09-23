@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analysis Plots</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/svg2pdf.js/2.2.3/svg2pdf.umd.min.js"></script>
+<style>
+  :root{--ink:#1c2330;--line:#d8dee8;--panel:#fbfcfe;--accent:#2f5fd6;--muted:#69728a;--bg:#eef1f6;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);
+       display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:13px;}
+  #nav{flex:0 0 auto;display:flex;gap:16px;align-items:center;padding:8px 16px;background:#1c2330;color:#fff;font-size:12px;}
+  #nav a{color:#cdd6ea;text-decoration:none;} #nav a.active{color:#fff;font-weight:700;}
+  #main{flex:1;display:flex;overflow:hidden;}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 0 8px;}
+  h2:first-child{margin-top:0;}
+  #panel{width:370px;flex:0 0 370px;background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;}
+  #canvasWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;}
+  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 3px;}
+  input,select,textarea{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff;color:var(--ink);font-family:inherit;}
+  textarea{height:80px;resize:vertical;font-family:monospace;font-size:11px;}
+  .row{display:flex;gap:8px;} .row>div{flex:1;}
+  button{width:100%;padding:8px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;}
+  button.secondary{background:#3a4256;} button.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent);}
+  .box{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:10px;background:#fff;}
+  .check{display:flex;align-items:center;gap:6px;margin:6px 0;} .check input{width:auto;}
+  .tabs{display:flex;gap:4px;margin-bottom:10px;} .tabs button{margin:0;background:#e4e8ef;color:var(--ink);}
+  .tabs button.active{background:var(--accent);color:#fff;}
+  .item{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-top:6px;font-size:11px;background:#fff;}
+  .item .swatch{width:12px;height:12px;border-radius:3px;flex:0 0 12px;}
+  .item .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .item .del{cursor:pointer;color:#c0392b;font-weight:700;}
+  .seriesBox{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;}
+  #svgHost{background:#fff;border:1px solid var(--line);border-radius:10px;padding:20px;}
+  #svgHost svg{max-width:100%;height:auto;}
+  .palette{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;margin-top:4px;}
+  .sw{aspect-ratio:1;border-radius:3px;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid transparent;text-shadow:0 0 2px rgba(0,0,0,.7);}
+  .sw.sel{border-color:#1c2330;}
+  .palNum{display:flex;gap:6px;align-items:center;margin-top:4px;} .palNum input{width:60px;} .palNum span{font-size:10px;color:var(--muted);}
+  .hint{font-size:10px;color:var(--muted);margin-top:4px;}
+  .subh{font-size:11px;font-weight:700;margin-top:10px;color:var(--ink);}
+</style>
+</head>
+<body>
+<div id="nav"><span style="font-weight:700">Figure Tools</span><a href="index.html">Home</a><a href="timeline.html">Timeline Diagram</a><a href="domains.html">Protein Domain Map</a><a href="plots.html" class="active">Analysis Plots</a><a href="multipanel.html">Multi-Panel Layout</a></div>
+<div id="main">
+<div id="panel">
+  <div class="tabs">
+    <button id="tabViolin" class="active" onclick="switchTab('violin')">Violin</button>
+    <button id="tabDensity" onclick="switchTab('density')">Density</button>
+    <button id="tabLine" onclick="switchTab('line')">Line</button>
+  </div>
+
+  <h2>Data</h2>
+  <div id="dataHint" class="hint"></div>
+  <textarea id="dataText" placeholder="Paste CSV or tab-separated data, first row = headers"></textarea>
+  <div class="row" style="margin-top:6px"><div><input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls"></div></div>
+  <div class="row" style="margin-top:6px"><div><button class="ghost" onclick="loadSample()">Load Sample Data</button></div><div><button onclick="parseInput()">Parse / Update</button></div></div>
+
+  <h2>Series / Groups</h2>
+  <div id="seriesList"></div>
+
+  <div id="regionSection" style="display:none">
+    <h2>Region Annotations</h2>
+    <div class="row"><div><input id="rStart" placeholder="Start"></div><div><input id="rEnd" placeholder="End"></div></div>
+    <input id="rLabel" placeholder="Label (e.g. Sheet)" style="margin-top:6px">
+    <div id="pal-region" style="margin-top:6px"></div>
+    <button onclick="addRegion()">Add Region</button>
+    <div id="regionList"></div>
+  </div>
+
+  <h2>Plot Size</h2>
+  <div class="box">
+    <div class="row"><div><label>Width</label><input id="plotW" type="number" value="18" step="0.1"></div>
+      <div><label>Height</label><input id="plotH" type="number" value="11" step="0.1"></div>
+      <div><label>Unit</label><select id="plotUnit"><option value="cm">cm</option><option value="mm">mm</option><option value="in">in</option></select></div></div>
+  </div>
+
+  <h2>Axes</h2>
+  <div class="box">
+    <div class="row"><div><label>X Axis Label</label><input id="xLabel"></div><div><label>Y Axis Label</label><input id="yLabel"></div></div>
+    <div class="subh">Y Axis</div>
+    <div class="row"><div><label>Start</label><input id="yStart" type="number"></div><div><label>End</label><input id="yEnd" type="number"></div><div><label>Ticks</label><input id="yTicks" type="number" value="6" min="2"></div></div>
+    <label>Space: axis \u2192 tick labels (px)</label><input id="yPad" type="number" value="8" min="0">
+    <div id="xAxisBox">
+      <div class="subh">X Axis</div>
+      <div id="xOffsetBox" style="display:none"><label>Renumber residues: add offset to X values</label><input id="xOffset" type="number" value="0"></div>
+      <div class="row"><div><label>Start</label><input id="xStart" type="number"></div><div><label>End</label><input id="xEnd" type="number"></div><div><label>Ticks</label><input id="xTicks" type="number" value="6" min="2"></div></div>
+      <label>Space: axis \u2192 tick labels (px)</label><input id="xPad" type="number" value="8" min="0">
+    </div>
+    <div id="binsBox" style="display:none;margin-top:6px"><label>Histogram Bins</label><input id="binCount" type="number" value="20" min="4" max="60"></div>
+    <div class="check"><input id="legendOn" type="checkbox" checked><label style="margin:0">Show series legend</label></div>
+    <div id="legendPosBox" class="row" style="margin-top:6px">
+      <div><label>Legend Position</label><select id="legendPos">
+        <option value="top-left">Top Left</option><option value="top-right">Top Right</option>
+        <option value="bottom-left">Bottom Left</option><option value="bottom-right">Bottom Right</option>
+      </select></div>
+      <div><label>Layout</label><select id="legendLayout"><option value="vertical">Stacked</option><option value="horizontal">Row</option></select></div>
+    </div>
+  </div>
+
+  <div id="violinLegendSection" class="box">
+    <div class="subh" style="margin-top:0">Violin Legend (25\u201375%, IQR, Mean)</div>
+    <div class="check"><input id="vlOn" type="checkbox" checked><label style="margin:0">Show</label></div>
+    <div class="row"><div><label>Position</label><select id="vlPos">
+      <option value="top-right">Top Right</option><option value="top-left">Top Left</option>
+      <option value="bottom-right">Bottom Right</option><option value="bottom-left">Bottom Left</option>
+    </select></div>
+    <div><label>Layout</label><select id="vlLayout"><option value="vertical">Stacked (1 column)</option><option value="horizontal">Row (3 columns)</option></select></div></div>
+    <label>Spacing between items (px)</label><input id="vlGap" type="number" value="8" min="0">
+    <div class="row" style="margin-top:6px"><div><input id="vlText1" value="25%~75%"></div><div><input id="vlText2" value="Range within 1.5 IQR"></div></div>
+    <input id="vlText3" value="Mean" style="margin-top:6px">
+  </div>
+
+  <h2>Fonts</h2>
+  <div class="box" id="fontTick"></div>
+  <div class="box" id="fontTitle"></div>
+  <div class="box" id="fontLegend"></div>
+
+  <h2>Export</h2>
+  <div class="box">
+    <button class="secondary" onclick="exportSVG()">Export as SVG</button>
+    <button class="secondary" onclick="exportPDF()">Export as Vector PDF (editable in Illustrator)</button>
+  </div>
+</div>
+<div id="canvasWrap"><div id="svgHost"></div></div>
+</div>
+<script src="shared.js"></script>
+<script>
+function $(id){return document.getElementById(id);}
+let mode='violin';
+let table={headers:[],cols:[]};
+let seriesConfig=[];
+let regions=[];
+let regionPal, tickPal, titlePal, legendPal;
+
+$('fontTick').innerHTML = fontRoleHTML('tick','Axis Tick Numbers');
+$('fontTitle').innerHTML = fontRoleHTML('title','Axis Titles');
+$('fontLegend').innerHTML = fontRoleHTML('legend','Legend / Category Labels');
+
+function switchTab(m){
+  mode=m;
+  ['Violin','Density','Line'].forEach(t=>$('tab'+t).classList.toggle('active', t.toLowerCase()===m));
+  $('regionSection').style.display = m==='line' ? 'block':'none';
+  $('binsBox').style.display = m==='density' ? 'block':'none';
+  $('violinLegendSection').style.display = m==='violin' ? 'block':'none';
+  $('legendPosBox').style.display = m==='violin' ? 'none':'flex';
+  $('xAxisBox').style.display = m==='violin' ? 'none':'block';
+  $('xOffsetBox').style.display = m==='line' ? 'block':'none';
+  $('dataHint').textContent = m==='line'
+    ? 'Column 1 = X values (e.g. residue number); remaining columns = one line series each.'
+    : 'Each column = one group\u2019s sample values (any length). First row = group names.';
+  buildSeriesConfig();
+  autofillAxes();
+  render();
+}
+
+['xLabel','yLabel','yStart','yEnd','yTicks','yPad','xStart','xEnd','xTicks','xPad','xOffset','binCount','legendOn','legendPos','legendLayout',
+ 'plotW','plotH','plotUnit','vlOn','vlPos','vlLayout','vlGap','vlText1','vlText2','vlText3'].forEach(id=>{
+  $(id).addEventListener('input',render); $(id).addEventListener('change',render);
+});
+
+$('fileInput').addEventListener('change', e=>{
+  const f=e.target.files[0]; if(!f) return;
+  loadFile(f, csv=>{ $('dataText').value=csv; parseInput(); });
+});
+
+function parseInput(){ table = parseDelimited($('dataText').value); buildSeriesConfig(); autofillAxes(); render(); }
+
+function buildSeriesConfig(){
+  const startIdx = mode==='line' ? 1 : 0;
+  seriesConfig = [];
+  for(let i=startIdx;i<table.headers.length;i++){
+    const idx = ((i*7+5) % 40)+1;
+    seriesConfig.push({label:table.headers[i]||('Series '+i), colorIdx:idx, color:PALETTE[idx-1], width:2, dash:false, visible:true, colIndex:i});
+  }
+  renderSeriesList();
+}
+function renderSeriesList(){
+  const c=$('seriesList'); c.innerHTML='';
+  seriesConfig.forEach((s,i)=>{
+    const div=document.createElement('div'); div.className='seriesBox';
+    div.innerHTML = `<div class="check"><input type="checkbox" ${s.visible?'checked':''} onchange="seriesConfig[${i}].visible=this.checked;render()"><label style="margin:0">Show in plot</label></div>
+      <label>Legend Label</label><input value="${s.label}" onchange="seriesConfig[${i}].label=this.value;render()">
+      <div id="palS${i}" style="margin-top:6px"></div>` +
+      (mode==='line' ? `<div class="row" style="margin-top:6px"><div><label>Line Width</label><input type="number" value="${s.width}" min="1" onchange="seriesConfig[${i}].width=parseFloat(this.value);render()"></div>
+        <div><label>Style</label><select onchange="seriesConfig[${i}].dash=this.value==='dashed';render()"><option value="solid">Solid</option><option value="dashed" ${s.dash?'selected':''}>Dashed</option></select></div></div>` : '');
+    c.appendChild(div);
+    createPalette($('palS'+i), s.colorIdx, (color,idx)=>{ seriesConfig[i].color=color; seriesConfig[i].colorIdx=idx; render(); });
+  });
+}
+function addRegion(){
+  const s=parseFloat($('rStart').value), e=parseFloat($('rEnd').value);
+  if(isNaN(s)||isNaN(e)) return;
+  const c = regionPal.get();
+  regions.push({start:s,end:e,label:$('rLabel').value||'',color:c.color});
+  $('rStart').value='';$('rEnd').value='';$('rLabel').value='';
+  render();
+}
+function removeRegion(i){ regions.splice(i,1); render(); }
+function renderRegionList(){
+  const c=$('regionList'); c.innerHTML='';
+  regions.forEach((r,i)=>{
+    const div=document.createElement('div'); div.className='item';
+    div.innerHTML=`<div class="swatch" style="background:${r.color}"></div><div class="txt">${r.start}-${r.end}${r.label?' ('+r.label+')':''}</div><div class="del" onclick="removeRegion(${i})">\u2715</div>`;
+    c.appendChild(div);
+  });
+}
+function randn(){ let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function loadSample(){
+  if(mode==='line'){
+    const heads=['Residue','Wild','T46I','P56H','P56S']; let rows=[heads.join(',')];
+    for(let i=1;i<=130;i++){
+      const base = 8*Math.exp(-i/8)+1+0.3*Math.abs(randn());
+      const bump = (i>70&&i<95) ? 2.5*Math.exp(-((i-82)**2)/60) : 0;
+      const vals=[i]; ['Wild','T46I','P56H','P56S'].forEach((g,gi)=>{ vals.push((base+bump*(0.7+0.3*gi%2)+0.2*randn()).toFixed(2)); });
+      rows.push(vals.join(','));
+    }
+    $('dataText').value=rows.join('\n');
+  } else {
+    const heads=['Wild','T46I','P56H','P56S'], means=[2.8,2.85,2.95,2.9], n=150;
+    const cols=heads.map((h,gi)=>Array.from({length:n},()=> (means[gi]+0.35*randn()).toFixed(3)));
+    let rows=[heads.join(',')];
+    for(let r=0;r<n;r++) rows.push(cols.map(c=>c[r]).join(','));
+    $('dataText').value=rows.join('\n');
+  }
+  parseInput();
+}
+
+function autofillAxes(){
+  const groups = seriesConfig.map(s=>table.cols[s.colIndex]||[]).filter(a=>a.length);
+  if(!groups.length) return;
+  if(mode==='line'){
+    const xs=(table.cols[0]||[]).map(v=>v+(parseFloat($('xOffset').value)||0));
+    if(xs.length){ $('xStart').value=Math.min(...xs); $('xEnd').value=Math.max(...xs); }
+    const allY=groups.flat(); const pad=(Math.max(...allY)-Math.min(...allY))*0.15||1;
+    $('yStart').value=(Math.min(...allY)-pad).toFixed(2); $('yEnd').value=(Math.max(...allY)+pad*2).toFixed(2);
+  } else if(mode==='violin'){
+    const all=groups.flat(); const pad=(Math.max(...all)-Math.min(...all))*0.15||1;
+    $('yStart').value=(Math.min(...all)-pad).toFixed(2); $('yEnd').value=(Math.max(...all)+pad).toFixed(2);
+  } else {
+    const all=groups.flat();
+    $('xStart').value=Math.min(...all).toFixed(2); $('xEnd').value=Math.max(...all).toFixed(2);
+    $('yStart').value=0; $('yEnd').value='';
+  }
+}
+
+let rolesInit=false;
+function initRoles(){
+  tickPal = initFontRole('tick', render);
+  titlePal = initFontRole('title', render);
+  legendPal = initFontRole('legend', render);
+  rolesInit=true;
+}
+function tf(){ return roleFontAttrs('tick'); }
+function tif(){ return roleFontAttrs('title'); }
+function lf(){ return roleFontAttrs('legend'); }
+function tickColor(){ return roleColor('tick', tickPal, '#333'); }
+function titleColor(){ return roleColor('title', titlePal, '#1c2330'); }
+function legendColor(matchColor){ return roleColor('legend', legendPal, '#1c2330', matchColor); }
+
+function render(){
+  if(!rolesInit) initRoles();
+  renderRegionList();
+  if(!regionPal) regionPal = createPalette($('pal-region'), 1, ()=>render());
+  if(mode==='violin') renderViolin();
+  else if(mode==='density') renderDensity();
+  else renderLine();
+}
+
+function plotDims(){ return {W: physicalToPx($('plotW').value,$('plotUnit').value)||600, H: physicalToPx($('plotH').value,$('plotUnit').value)||400}; }
+function baseSVG(W,H){ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#fff"/>`; }
+function axisLabels(xLabel,yLabel,W,H,ml,mr,mt,mb){
+  let s=''; const tc=titleColor();
+  if(xLabel) s+=`<text x="${ml+(W-ml-mr)/2}" y="${H-8}" text-anchor="middle" ${tif()} fill="${tc}">${escXml(xLabel)}</text>`;
+  if(yLabel) s+=`<text x="16" y="${mt+(H-mt-mb)/2}" text-anchor="middle" ${tif()} fill="${tc}" transform="rotate(-90 16 ${mt+(H-mt-mb)/2})">${escXml(yLabel)}</text>`;
+  return s;
+}
+function visSeries(){ return seriesConfig.filter(s=>s.visible); }
+function num(id,fallback){ const v=parseFloat($(id).value); return isNaN(v)?fallback:v; }
+
+function renderViolin(){
+  const {W,H}=plotDims(); const ml=64,mr=20,mt=34,mb=64, drawW=W-ml-mr, drawH=H-mt-mb;
+  const groups = visSeries().map(s=>({label:s.label,color:s.color,data:table.cols[s.colIndex]||[]})).filter(g=>g.data.length>1);
+  if(!groups.length){ $('svgHost').innerHTML=baseSVG(W,H)+'</svg>'; return; }
+  const yMin=num('yStart',0), yMax=num('yEnd',1);
+  const yS=v=> mt+drawH-(v-yMin)/(yMax-yMin)*drawH;
+  const slotW=drawW/groups.length;
+  let svg=baseSVG(W,H);
+  svg+=`<rect x="${ml}" y="${mt}" width="${drawW}" height="${drawH}" fill="none" stroke="#222" stroke-width="1.2"/>`;
+  linTicks(yMin,yMax,parseInt($('yTicks').value)).forEach(t=>{
+    const ty=yS(t);
+    svg+=`<line x1="${ml-4}" y1="${ty}" x2="${ml}" y2="${ty}" stroke="#222"/>`;
+    svg+=`<text x="${ml-4-num('yPad',8)}" y="${ty+4}" text-anchor="end" ${tf()} fill="${tickColor()}">${t}</text>`;
+  });
+  groups.forEach((g,i)=>{
+    const cx=ml+slotW*(i+0.5);
+    const bw=silvermanBW(g.data)||1;
+    const pts=Array.from({length:40},(_,k)=>yMin+k*(yMax-yMin)/39);
+    const dens=gaussianKDE(g.data,pts,bw);
+    const maxD=Math.max(...dens)||1;
+    const hw=dens.map(d=> d/maxD*slotW*0.42);
+    let d='';
+    pts.forEach((p,k)=>{ d+= (k===0?'M':'L')+(cx-hw[k])+' '+yS(p)+' '; });
+    for(let k=pts.length-1;k>=0;k--) d+='L'+(cx+hw[k])+' '+yS(pts[k])+' ';
+    d+='Z';
+    svg+=`<path d="${d}" fill="${g.color}" fill-opacity="0.55" stroke="${g.color}" stroke-width="1.5"/>`;
+    const st=quartileStats(g.data);
+    svg+=`<line x1="${cx}" y1="${yS(st.loW)}" x2="${cx}" y2="${yS(st.hiW)}" stroke="#111" stroke-width="1.8"/>`;
+    svg+=`<rect x="${cx-6}" y="${yS(st.q3)}" width="12" height="${yS(st.q1)-yS(st.q3)}" fill="#111"/>`;
+    svg+=`<rect x="${cx-3}" y="${yS(st.mean)-3}" width="6" height="6" fill="#e53935"/>`;
+    svg+=`<text x="${cx}" y="${mt+drawH+22}" text-anchor="middle" ${lf()} fill="${legendColor(g.color)}">${escXml(g.label)}</text>`;
+  });
+  if($('vlOn').checked){
+    const items=[{type:'box',color:'#111',label:$('vlText1').value},{type:'line',color:'#111',label:$('vlText2').value},{type:'dot',color:'#e53935',label:$('vlText3').value}];
+    items.forEach(it=>{it.font=lf(); it.textColor=legendColor('#1c2330');});
+    svg+=drawLegend(items,{position:$('vlPos').value,layout:$('vlLayout').value,gap:parseFloat($('vlGap').value)||8,ml,mr,mt,mb,W,H});
+  }
+  svg+=axisLabels($('xLabel').value,$('yLabel').value,W,H,ml,mr,mt,mb);
+  svg+='</svg>'; $('svgHost').innerHTML=svg;
+}
+
+function renderDensity(){
+  const {W,H}=plotDims(); const ml=64,mr=20,mt=30,mb=54, drawW=W-ml-mr, drawH=H-mt-mb;
+  const groups = visSeries().map(s=>({label:s.label,color:s.color,data:table.cols[s.colIndex]||[]})).filter(g=>g.data.length>1);
+  if(!groups.length){ $('svgHost').innerHTML=baseSVG(W,H)+'</svg>'; return; }
+  const xMin=num('xStart',0), xMax=num('xEnd',1);
+  const bins=parseInt($('binCount').value)||20;
+  const binW=(xMax-xMin)/bins;
+  const hists = groups.map(g=>{
+    const counts=new Array(bins).fill(0);
+    g.data.forEach(v=>{ let b=Math.floor((v-xMin)/binW); if(b>=bins)b=bins-1; if(b<0)b=0; counts[b]++; });
+    return counts.map(c=> c/(g.data.length*binW));
+  });
+  let yMax=num('yEnd',NaN); if(!yMax) yMax=Math.max(...hists.flat())*1.1||1;
+  const xS=v=> ml+(v-xMin)/(xMax-xMin)*drawW;
+  const yS=v=> mt+drawH-(v/yMax)*drawH;
+  let svg=baseSVG(W,H);
+  svg+=`<rect x="${ml}" y="${mt}" width="${drawW}" height="${drawH}" fill="none" stroke="#222" stroke-width="1.2"/>`;
+  linTicks(xMin,xMax,parseInt($('xTicks').value)).forEach(t=>{
+    const tx=xS(t);
+    svg+=`<line x1="${tx}" y1="${mt+drawH}" x2="${tx}" y2="${mt+drawH+4}" stroke="#222"/>`;
+    svg+=`<text x="${tx}" y="${mt+drawH+4+num('xPad',8)+10}" text-anchor="middle" ${tf()} fill="${tickColor()}">${t}</text>`;
+  });
+  linTicks(0,yMax,parseInt($('yTicks').value)).forEach(t=>{
+    const ty=yS(t);
+    svg+=`<line x1="${ml-4}" y1="${ty}" x2="${ml}" y2="${ty}" stroke="#222"/>`;
+    svg+=`<text x="${ml-4-num('yPad',8)}" y="${ty+4}" text-anchor="end" ${tf()} fill="${tickColor()}">${t}</text>`;
+  });
+  groups.forEach((g,gi)=>{
+    let d='M'+xS(xMin)+' '+yS(0)+' ';
+    hists[gi].forEach((h,b)=>{ const x1=xS(xMin+b*binW), x2=xS(xMin+(b+1)*binW); d+=`L${x1} ${yS(h)} L${x2} ${yS(h)} `; });
+    d+='L'+xS(xMax)+' '+yS(0);
+    svg+=`<path d="${d}" fill="${g.color}" fill-opacity="0.15" stroke="${g.color}" stroke-width="1.8"/>`;
+  });
+  if($('legendOn').checked){
+    const items=groups.map(g=>({type:'swatch',color:g.color,label:g.label,opacity:0.5,font:lf(),textColor:legendColor(g.color)}));
+    svg+=drawLegend(items,{position:$('legendPos').value,layout:$('legendLayout').value,gap:6,ml,mr,mt,mb,W,H});
+  }
+  svg+=axisLabels($('xLabel').value,$('yLabel').value,W,H,ml,mr,mt,mb);
+  svg+='</svg>'; $('svgHost').innerHTML=svg;
+}
+
+function renderLine(){
+  const {W,H}=plotDims(); const ml=64,mr=20,mt=30,mb=54, drawW=W-ml-mr, drawH=H-mt-mb;
+  const xs=(table.cols[0]||[]).map(v=>v+(parseFloat($('xOffset').value)||0));
+  const series = visSeries().map(s=>({label:s.label,color:s.color,width:s.width,dash:s.dash,data:table.cols[s.colIndex]||[]})).filter(s=>s.data.length>1);
+  if(!xs.length || !series.length){ $('svgHost').innerHTML=baseSVG(W,H)+'</svg>'; return; }
+  const xMin=num('xStart',0), xMax=num('xEnd',1), yMin=num('yStart',0), yMax=num('yEnd',1);
+  const xS=v=> ml+(v-xMin)/(xMax-xMin)*drawW;
+  const yS=v=> mt+drawH-(v-yMin)/(yMax-yMin)*drawH;
+  let svg=baseSVG(W,H);
+  regions.forEach(r=>{
+    const rx=xS(Math.max(r.start,xMin)), rw=xS(Math.min(r.end,xMax))-rx;
+    if(rw>0) svg+=`<rect x="${rx}" y="${mt}" width="${rw}" height="${drawH}" fill="${r.color}" fill-opacity="0.35"/>`;
+  });
+  svg+=`<rect x="${ml}" y="${mt}" width="${drawW}" height="${drawH}" fill="none" stroke="#222" stroke-width="1.2"/>`;
+  linTicks(xMin,xMax,parseInt($('xTicks').value)).forEach(t=>{
+    const tx=xS(t);
+    svg+=`<line x1="${tx}" y1="${mt+drawH}" x2="${tx}" y2="${mt+drawH+4}" stroke="#222"/>`;
+    svg+=`<text x="${tx}" y="${mt+drawH+4+num('xPad',8)+10}" text-anchor="middle" ${tf()} fill="${tickColor()}">${t}</text>`;
+  });
+  linTicks(yMin,yMax,parseInt($('yTicks').value)).forEach(t=>{
+    const ty=yS(t);
+    svg+=`<line x1="${ml-4}" y1="${ty}" x2="${ml}" y2="${ty}" stroke="#222"/>`;
+    svg+=`<text x="${ml-4-num('yPad',8)}" y="${ty+4}" text-anchor="end" ${tf()} fill="${tickColor()}">${t}</text>`;
+  });
+  series.forEach(s=>{
+    let d='';
+    xs.forEach((xv,i)=>{ if(s.data[i]!==undefined) d+=(d===''?'M':'L')+xS(xv)+' '+yS(s.data[i])+' '; });
+    svg+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width}" ${s.dash?'stroke-dasharray="6,4"':''}/>`;
+  });
+  if($('legendOn').checked){
+    const seen=new Set();
+    const items=series.map(s=>({type:'line',color:s.color,label:s.label,width:s.width,dash:s.dash,font:lf(),textColor:legendColor(s.color)}));
+    regions.forEach(r=>{ if(r.label && !seen.has(r.label)){ seen.add(r.label); items.push({type:'swatch',color:r.color,label:r.label,opacity:0.5,font:lf(),textColor:legendColor('#1c2330')}); } });
+    svg+=drawLegend(items,{position:$('legendPos').value,layout:$('legendLayout').value,gap:6,ml,mr,mt,mb,W,H});
+  }
+  svg+=axisLabels($('xLabel').value,$('yLabel').value,W,H,ml,mr,mt,mb);
+  svg+='</svg>'; $('svgHost').innerHTML=svg;
+}
+
+function exportSVG(){ downloadSVG($('svgHost').querySelector('svg'), mode+'-plot.svg'); }
+function exportPDF(){
+  const svgEl=$('svgHost').querySelector('svg');
+  const wIn = $('plotUnit').value==='in'?parseFloat($('plotW').value): $('plotUnit').value==='cm'?parseFloat($('plotW').value)/2.54:parseFloat($('plotW').value)/25.4;
+  const hIn = $('plotUnit').value==='in'?parseFloat($('plotH').value): $('plotUnit').value==='cm'?parseFloat($('plotH').value)/2.54:parseFloat($('plotH').value)/25.4;
+  exportVectorPDF(svgEl, wIn, hIn, mode+'-plot.pdf');
+}
+
+switchTab('violin');
+loadSample();
+</script>
+</body>
+</html>
